@@ -23,15 +23,15 @@ import com.mozilla.bagheera.BagheeraProto.BagheeraMessage;
 
 import kafka.message.Message;
 import kafka.serializer.Encoder;
+import kafka.utils.VerifiableProperties;
 
 public class BagheeraEncoder implements Encoder<BagheeraMessage> {
+    public BagheeraEncoder(VerifiableProperties props) {
+    }
 
-    /* (non-Javadoc)
-     * @see kafka.serializer.Encoder#toMessage(java.lang.Object)
-     */
     @Override
-    public Message toMessage(BagheeraMessage bmsg) {
-        return new Message(bmsg.toByteArray());
+    public byte[] toBytes(BagheeraMessage bmsg) {
+        return bmsg.toByteArray();
     }
     
 }

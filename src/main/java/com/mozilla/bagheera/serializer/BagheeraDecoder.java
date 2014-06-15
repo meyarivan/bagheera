@@ -34,10 +34,10 @@ public class BagheeraDecoder implements Decoder<BagheeraMessage> {
     private static final Logger LOG = Logger.getLogger(BagheeraDecoder.class);
     
     @Override
-    public BagheeraMessage toEvent(Message msg) {
+    public BagheeraMessage fromBytes(byte[] msg) {
         BagheeraMessage bmsg = null;
         try {
-            bmsg = BagheeraProto.BagheeraMessage.parseFrom(ByteString.copyFrom(msg.payload()));
+            bmsg = BagheeraProto.BagheeraMessage.parseFrom(msg);
         } catch (InvalidProtocolBufferException e) {
             LOG.error("Received unparseable message", e);
         }

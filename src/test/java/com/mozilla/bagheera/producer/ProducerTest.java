@@ -30,14 +30,20 @@ import java.util.Properties;
 import java.util.UUID;
 
 import kafka.api.FetchRequest;
+import kafka.api.FetchRequestBuilder;
+import kafka.javaapi.FetchResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.javaapi.message.ByteBufferMessageSet;
-import kafka.javaapi.producer.ProducerData;
+import kafka.producer.KeyedMessage;
 import kafka.message.Message;
 import kafka.message.MessageAndOffset;
 import kafka.producer.ProducerConfig;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServer;
+import kafka.utils.SystemTime$;
+import kafka.utils.Time;
+import kafka.common.OffsetOutOfRangeException;
+import org.apache.curator.test.TestingServer;
 
 import org.junit.After;
 import org.junit.Before;
@@ -66,6 +72,7 @@ public class ProducerTest {
     private int messageNumber = 0;
 
     private KafkaServer server;
+    private TestingServer zkServer;
 
     @Before
     public void setup() throws IOException, InterruptedException {
@@ -81,22 +88,32 @@ public class ProducerTest {
         startServer();
     }
 
-    private void startServer() {
+    private void startServer() throws IOException {
         stopServer();
+
+        try {
+          // setup local ZK
+          zkServer = new TestingServer();
+        } catch (Exception e) {
+          throw new IOException(e);
+        }
+
         Properties props = new Properties();
         props.setProperty("hostname", "localhost");
         props.setProperty("port", String.valueOf(KAFKA_BROKER_PORT));
-        props.setProperty("brokerid", String.valueOf(KAFKA_BROKER_ID));
+        props.setProperty("broker.id", String.valueOf(KAFKA_BROKER_ID));
         props.setProperty("log.dir", KAFKA_DIR);
-        props.setProperty("enable.zookeeper", "false");
+        props.setProperty("zookeeper.connect", zkServer.getConnectString());
 
         // flush every message.
         props.setProperty("log.flush.interval", "1");
 
         // flush every 1ms
         props.setProperty("log.default.flush.scheduler.interval.ms", "1");
+        props.setProperty("message.max.bytes", String.valueOf(MAX_MESSAGE_SIZE));
 
-        server = new KafkaServer(new KafkaConfig(props));
+        Time time = SystemTime$.MODULE$;
+        server = new KafkaServer(new KafkaConfig(props), time);
         server.startup();
     }
 
@@ -149,28 +166,34 @@ public class ProducerTest {
 //        Message 14 @2478: 24.3456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
 //        Message 15 @2655: 25.3456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
         int badExpectedCount = goodExpectedCount + 3;
+        System.err.println("cnts " + badExpectedCount + " " + messageCount);
         assertEquals(badExpectedCount, messageCount);
     }
 
     private int countMessages() throws InvalidProtocolBufferException {
-        SimpleConsumer consumer = new SimpleConsumer("localhost", KAFKA_BROKER_PORT, 100, 1024);
+        SimpleConsumer consumer = new SimpleConsumer("localhost", KAFKA_BROKER_PORT, 100, 1024, "test_consumer");
         long offset = 0l;
         int messageCount = 0;
+        FetchRequest req;
+        FetchResponse response;
 
         for (int i = 0; i < BATCH_SIZE; i++) {
-            ByteBufferMessageSet messageSet = consumer.fetch(new FetchRequest(KAFKA_TOPIC, 0, offset, 1024));
+            System.out.println("building new fetchreq with offset = " + offset);
+            try {
+              req = new FetchRequestBuilder().clientId("test_consumer").addFetch(KAFKA_TOPIC, 0, offset, 1024).build();
+              response = consumer.fetch(req);
+            } catch (OffsetOutOfRangeException e) {
+              break;
+            }
 
-            Iterator<MessageAndOffset> iterator = messageSet.iterator();
-            MessageAndOffset msgAndOff;
-            while (iterator.hasNext()) {
+            for (MessageAndOffset msgAndOff : response.messageSet(KAFKA_TOPIC, 0)) {
                 messageCount++;
-                msgAndOff = iterator.next();
                 offset = msgAndOff.offset();
                 Message message2 = msgAndOff.message();
                 BagheeraMessage bmsg = BagheeraMessage.parseFrom(ByteString.copyFrom(message2.payload()));
 
                 String payload = new String(bmsg.getPayload().toByteArray());
-                System.out.println(String.format("Message %d @%d: %s", messageCount, offset, payload));
+                System.out.println(String.format("Message %d @%d: %s", messageCount, offset, payload) + " "  + i + " " + offset);
             }
         }
 
@@ -200,8 +223,8 @@ public class ProducerTest {
         Thread.sleep(100);
     }
 
-    private ProducerData<String,BagheeraMessage> getProducerData(BagheeraMessage msg) {
-        return new ProducerData<String,BagheeraMessage>(msg.getNamespace(), msg);
+    private KeyedMessage<String,BagheeraMessage> getProducerData(BagheeraMessage msg) {
+        return new KeyedMessage<String,BagheeraMessage>(msg.getNamespace(), msg);
     }
 
     private BagheeraMessage getMessage(int payloadSize) {
@@ -224,10 +247,9 @@ public class ProducerTest {
 
     private Properties getProperties() {
         Properties props = new Properties();
-        props.setProperty("producer.type",    "async");
-        props.setProperty("batch.size",       String.valueOf(BATCH_SIZE));
-        props.setProperty("max.message.size", String.valueOf(MAX_MESSAGE_SIZE));
-        props.setProperty("broker.list",      KAFKA_BROKER_ID + ":localhost:" + KAFKA_BROKER_PORT);
+        props.setProperty("producer.type","async");
+        props.setProperty("batch.num.messages", String.valueOf(BATCH_SIZE));
+        props.setProperty("metadata.broker.list", "localhost:" + KAFKA_BROKER_PORT);
         props.setProperty("serializer.class", "com.mozilla.bagheera.serializer.BagheeraEncoder");
 
         return props;

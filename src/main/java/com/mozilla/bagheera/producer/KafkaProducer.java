@@ -23,7 +23,7 @@ import java.util.Properties;
 import java.util.List;
 import java.util.ArrayList;
 import kafka.javaapi.producer.Producer;
-import kafka.javaapi.producer.ProducerData;
+import kafka.producer.KeyedMessage;
 import kafka.producer.ProducerConfig;
 
 import com.mozilla.bagheera.BagheeraProto.BagheeraMessage;
@@ -53,7 +53,7 @@ public class KafkaProducer implements com.mozilla.bagheera.producer.Producer {
     public void send(BagheeraMessage msg) {
         List<BagheeraMessage> list = new ArrayList<BagheeraMessage>();
         list.add(msg);
-        producer.send(new ProducerData<String,BagheeraMessage>(msg.getNamespace(), msg.getId(),list));
+        producer.send(new KeyedMessage<String,BagheeraMessage>(msg.getNamespace(), msg.getId(),msg));
     }
     
 }

@@ -71,7 +71,7 @@ public class KafkaConsumer implements Consumer {
     protected ExecutorService executor;
     protected List<Future<Void>> workers;
     protected ConsumerConnector consumerConnector;
-    protected List<KafkaStream<Message>> streams;
+    protected List<KafkaStream<byte[],  byte[]>> streams;
     protected KeyValueSinkFactory sinkFactory;
     protected ValidationPipeline validationPipeline;
     
@@ -138,13 +138,13 @@ public class KafkaConsumer implements Consumer {
     @Override
     public void poll() {
         final CountDownLatch latch = new CountDownLatch(streams.size());
-        for (final KafkaStream<Message> stream : streams) {  
+        for (final KafkaStream<byte[], byte[]> stream : streams) {
             workers.add(executor.submit(new Callable<Void>() {
                 @Override
                 public Void call() {                  
                     try {
-                        for (MessageAndMetadata<Message> mam : stream) {
-                            BagheeraMessage bmsg = BagheeraMessage.parseFrom(ByteString.copyFrom(mam.message().payload()));
+                        for (MessageAndMetadata<byte[], byte[]> mam : stream) {
+                            BagheeraMessage bmsg = BagheeraMessage.parseFrom(mam.message());
                             // get the sink for this message's namespace 
                             // (typically only one sink unless a regex pattern was used to listen to multiple topics)
                             KeyValueSink sink = sinkFactory.getSink(bmsg.getNamespace());

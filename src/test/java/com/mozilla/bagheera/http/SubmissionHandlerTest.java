@@ -67,7 +67,7 @@ public class SubmissionHandlerTest {
         Channel channel = Mockito.mock(Channel.class);
         Mockito.when(event.getChannel()).thenReturn(channel);
 
-        InetSocketAddress address = Mockito.mock(InetSocketAddress.class);
+        InetSocketAddress address = new InetSocketAddress("124.124.124.124", 443); //Mockito.mock(InetSocketAddress.class);
         Mockito.when(channel.getRemoteAddress()).thenReturn(address);
 
         // Do not set the ID
