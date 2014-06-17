@@ -55,19 +55,22 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.mozilla.bagheera.BagheeraProto.BagheeraMessage;
 
+
 public class ProducerTest {
 
     @Rule
     public TemporaryFolder folder = new TemporaryFolder();
 
     private String KAFKA_DIR;
-    private static final int BATCH_SIZE = 10;
-    private static final int MAX_MESSAGE_SIZE = 500;
-    private static final int GOOD_MESSAGE_SIZE = 100;
+    private static final int BATCH_SIZE = 4;
+    private static final int GOOD_MESSAGE_SIZE = 100; 
+    private static final int MAX_MESSAGE_SIZE = BATCH_SIZE * GOOD_MESSAGE_SIZE;
     private static final int BAD_MESSAGE_SIZE = 1000;
     private static final int KAFKA_BROKER_ID = 0;
+    private static final String KAFKA_BROKER_HOST = "localhost";
     private static final int KAFKA_BROKER_PORT = 9090;
     private static final String KAFKA_TOPIC = "test";
+    private static final int KAFKA_PARTITION = 0;
 
     private int messageNumber = 0;
 
@@ -99,17 +102,17 @@ public class ProducerTest {
         }
 
         Properties props = new Properties();
-        props.setProperty("hostname", "localhost");
+        props.setProperty("hostname", KAFKA_BROKER_HOST);
         props.setProperty("port", String.valueOf(KAFKA_BROKER_PORT));
         props.setProperty("broker.id", String.valueOf(KAFKA_BROKER_ID));
         props.setProperty("log.dir", KAFKA_DIR);
         props.setProperty("zookeeper.connect", zkServer.getConnectString());
-
         // flush every message.
-        props.setProperty("log.flush.interval", "1");
+        props.setProperty("log.flush.interval.messages", "1");
 
         // flush every 1ms
-        props.setProperty("log.default.flush.scheduler.interval.ms", "1");
+        props.setProperty("log.flush.scheduler.interval.ms", "1");
+        props.setProperty("log.flush.interval.ms", "1");
         props.setProperty("message.max.bytes", String.valueOf(MAX_MESSAGE_SIZE));
 
         Time time = SystemTime$.MODULE$;
@@ -171,32 +174,31 @@ public class ProducerTest {
     }
 
     private int countMessages() throws InvalidProtocolBufferException {
-        SimpleConsumer consumer = new SimpleConsumer("localhost", KAFKA_BROKER_PORT, 100, 1024, "test_consumer");
+        SimpleConsumer consumer = new SimpleConsumer(KAFKA_BROKER_HOST, KAFKA_BROKER_PORT, 1000, 1024, "test_consumer");
         long offset = 0l;
-        int messageCount = 0;
+        int messageCount = 0, msgsRead = 0;
         FetchRequest req;
         FetchResponse response;
 
-        for (int i = 0; i < BATCH_SIZE; i++) {
-            System.out.println("building new fetchreq with offset = " + offset);
-            try {
-              req = new FetchRequestBuilder().clientId("test_consumer").addFetch(KAFKA_TOPIC, 0, offset, 1024).build();
-              response = consumer.fetch(req);
-            } catch (OffsetOutOfRangeException e) {
-              break;
-            }
+        do {
+            req = new FetchRequestBuilder().clientId("test_consumer").addFetch(KAFKA_TOPIC, KAFKA_PARTITION, offset, 1024).build();
+            response = consumer.fetch(req);
 
-            for (MessageAndOffset msgAndOff : response.messageSet(KAFKA_TOPIC, 0)) {
+            msgsRead = 0;
+            for (MessageAndOffset msgAndOff : response.messageSet(KAFKA_TOPIC, KAFKA_PARTITION)) {
                 messageCount++;
+                msgsRead++;
                 offset = msgAndOff.offset();
+
                 Message message2 = msgAndOff.message();
                 BagheeraMessage bmsg = BagheeraMessage.parseFrom(ByteString.copyFrom(message2.payload()));
-
+                
                 String payload = new String(bmsg.getPayload().toByteArray());
-                System.out.println(String.format("Message %d @%d: %s", messageCount, offset, payload) + " "  + i + " " + offset);
+                System.out.println(String.format("Message %d @%d: %s", messageCount, offset, payload));
+                offset = msgAndOff.nextOffset();
             }
-        }
-
+        } while (msgsRead > 0);
+        
         consumer.close();
         return messageCount;
     }
@@ -248,8 +250,9 @@ public class ProducerTest {
     private Properties getProperties() {
         Properties props = new Properties();
         props.setProperty("producer.type","async");
+        props.setProperty("request.required.acks","1");
         props.setProperty("batch.num.messages", String.valueOf(BATCH_SIZE));
-        props.setProperty("metadata.broker.list", "localhost:" + KAFKA_BROKER_PORT);
+        props.setProperty("metadata.broker.list", KAFKA_BROKER_HOST + ":" + KAFKA_BROKER_PORT);
         props.setProperty("serializer.class", "com.mozilla.bagheera.serializer.BagheeraEncoder");
 
         return props;
